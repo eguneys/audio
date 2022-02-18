@@ -23,57 +23,168 @@ abstract class IMetro {
   get play(): Play { return this.ctx.play }
 	get a(): HTMLImageElement { return this.ctx.image }
 
+  t_life!: number
+  t_life0!: number
+
+  data: any
+
+  palette: Anim = new Anim(this.a, 0, 0, 1, 1)
+
 	constructor(readonly ctx: Context) {}
 
   init(): this {
+    this.t_life = 0
+    this.t_life0 = 0
     this._init()
     return this
   }
 
   update(dt: number, dt0: number) {
+    this.t_life += dt
     this._update(dt, dt0)
+    this.t_life0 = this.t_life
   }
 
   draw() {
     this._draw()
   }
+
+  on_interval(v: number) {
+    return Math.floor(this.t_life0 / v) !== Math.floor(this.t_life / v)
+  }
+
+
+  _set_data(data: any): this { 
+    this.data = data 
+    return this
+  }
+
   abstract _init(): void;
   abstract _update(dt: number, dt0: number): void;
   abstract _draw(): void;
 }
 
+class Anim {
+
+  quads: Array<Quad> = []
+
+  frame: number = 0
+
+  get quad(): Quad {
+    if (!this.quads[this.frame]) {
+      this.quads[this.frame] = Quad.make(this.image,
+                                         this.x + this.w * this.frame,
+                                         this.y, this.w, this.h)
+    }
+    return this.quads[this.frame]
+  }
+
+  constructor(readonly image: HTMLImageElement,
+              readonly x: number, 
+              readonly y: number,
+              readonly w: number,
+              readonly h: number) { }
+
+  draw(play: Play, x: number, y: number, sx: number = 1, sy: number = sx) {
+    x = Math.round(x)
+    y = Math.round(y)
+    play.draw(this.quad, x, y, 0, sx, sy)
+  }
+
+
+  rect(play: Play, frame: number, x: number, y: number, sx: number = 1, sy: number = sx) {
+    this.frame = frame
+    this.draw(play, x, y, sx, sy)
+  }
+}
+
 
 class AllMetro extends IMetro {
 
+  kick!: Kick
+  snare!: Snare
+
+  v_snare!: VAnalyser
+  v_kick!: VAnalyser
 
   _init() {
+
+    let context = new AudioContext()
+
+    this.kick = new Kick(context)
+    this.snare = new Snare(context)
+
+    this.v_snare = new VAnalyser(this.ctx)._set_data({ has_analyser: this.snare, color: 3 })
+    this.v_kick = new VAnalyser(this.ctx)._set_data({ has_analyser: this.kick, color: 6 })
+
   }
 
-  _update(dt: number, dt0: number) {}
+  _update(dt: number, dt0: number) {
+  
+    if (this.on_interval(ticks.seconds)) {
+      this.snare.a(this.snare.context.currentTime)
+    }
+
+    if (this.on_interval(ticks.half)) {
+      this.kick.a(this.kick.context.currentTime)
+    }
+
+    this.v_snare.update(dt, dt0)
+    this.v_kick.update(dt, dt0)
+
+  }
 
   _draw() {
+
+    this.palette.rect(this.play, 1, 0, 0, 320, 180)
+    this.v_kick.draw()
+    this.v_snare.draw()
+  }
+}
+
+type Color = number
+type VAnalyserData = {
+  has_analyser: HasAudioAnalyser,
+  color: Color
+}
+class VAnalyser extends IMetro {
+
+  _data?: Uint8Array
+
+  get analyser(): AnalyserNode | undefined {
+    return this.data.has_analyser.analyser
+  }
+  
+  get color(): Color {
+    return this.data.color
+  }
+
+  _init() {}
+
+
+  _update(dt: number, dt0: number) {
+
+    if (this.analyser) {
+      if (!this._data) {
+        this._data = new Uint8Array(this.analyser.frequencyBinCount)
+      }
+      this.analyser.getByteTimeDomainData(this._data!)
+    }
+  }
+
+  _draw() {
+    if (this._data) {
+      let w = 320 / this._data.length * 4
+      for (let i = 0; i < this._data.length; i++) {
+        let h = this._data[i] / 256 * 120
+        this.palette.rect(this.play, this.color, w * i, 180, w,  -h)
+      }
+    }
   }
 
 }
 
 export default function app(element: HTMLElement) {
-
-  /*
-  let context = new AudioContext()
-  console.log(context.sampleRate, context.destination.channelCount)
-
-  let now = context.currentTime
-  let kick = new Kick(context)
-
-  kick.a(now)
-  kick.a(now + 0.5)
-  kick.a(now + 1)
-
-
-  let snare = new Snare(context)
-  snare.a(now)
-  snare.a(now + 1)
-   */
 
   let input: Input = new Input()
   let play = Iksir(element)
@@ -117,32 +228,27 @@ export default function app(element: HTMLElement) {
         metro.update(dt, dt0)
       }
 
-    metro.draw()
-    play.flush()
-    dt0 = dt 
-    requestAnimationFrame(step)
+      metro.draw()
+      play.flush()
+      dt0 = dt 
+      requestAnimationFrame(step)
     }
     requestAnimationFrame(step)
   })
 }
 
-function draw(analyser: AnalyserNode) {
-  let data = new Uint8Array(analyser.frequencyBinCount)
-
-  analyser.getByteTimeDomainData(data)
 
 
+abstract class HasAudioAnalyser {
+  analyser?: AnalyserNode
 
-}
-
-class WithContext {
   constructor(readonly context: AudioContext) {}
+
+
+  abstract a(time: number): void;
 }
 
-class Snare extends WithContext {
-
-
-  analyser!: AnalyserNode
+class Snare extends HasAudioAnalyser {
 
   _noise!: AudioBuffer
 
@@ -189,7 +295,7 @@ class Snare extends WithContext {
   }
 }
 
-class Kick extends WithContext {
+class Kick extends HasAudioAnalyser {
 
   a(time: number) {
     let { context } = this
@@ -198,7 +304,10 @@ class Kick extends WithContext {
     let gain = context.createGain()
 
     oscillator.connect(gain)
-    gain.connect(context.destination)
+    this.analyser = this.context.createAnalyser()
+    gain.connect(this.analyser)
+    this.analyser.connect(this.context.destination)
+
 
     oscillator.frequency.setValueAtTime(150, time)
     gain.gain.setValueAtTime(1, time)
