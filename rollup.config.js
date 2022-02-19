@@ -3,6 +3,7 @@ const htmlTemplate = require('rollup-plugin-generate-html-template')
 const typescript = require('@rollup/plugin-typescript')
 
 const image = require('@rollup/plugin-image')
+const copy = require('rollup-plugin-copy')
 
 const serve = require('rollup-plugin-serve')
 const livereload = require('rollup-plugin-livereload')
@@ -35,6 +36,9 @@ export default args => {
         target: 'index.html'
       }),
       image(),
+      copy({
+        targets: [{ src: 'assets/vendor/*', dest: 'dist/assets/vendor' }]
+      }),
       ...(prod ? [] : [
         serve({ contentBase: 'dist', port: 3000 }),
         livereload({ watch: 'dist', port: 8080 })

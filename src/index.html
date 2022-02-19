@@ -23,12 +23,21 @@ body {
       aspect-ratio: 16/9;
     }
     </style>
+    <script src="assets/vendor/dat.gui.min.js"></script>
   </head>
   <body>
     <div id='app'></div>
     <script>
       document.addEventListener('DOMContentLoaded', () => {
-        Space(document.getElementById('app'))
+        let config = { pulse: { volume: 0.1, pulse_width: 0, cutoff: 2000 } }
+        let api = Space(document.getElementById('app'), config)
+
+        let gui = new dat.GUI()
+
+        gui.add(config.pulse, 'pulse_width', 0, 0.6, 0.1)
+        gui.add(config.pulse, 'volume', 0, 0.8, 0.1)
+        gui.add(config.pulse, 'cutoff', 0, 2000, 200)
+
       })
     </script>
   </body>
