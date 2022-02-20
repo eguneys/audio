@@ -172,7 +172,7 @@ type VAnalyserData = {
 class VAnalyser extends IMetro {
 
 
-  _data?: Uint8Array
+  _data?: Float32Array
 
   get has_analyser(): HasAudioAnalyser {
     return this.data.has_analyser as HasAudioAnalyser
@@ -193,9 +193,9 @@ class VAnalyser extends IMetro {
 
     if (this.analyser) {
       if (!this._data) {
-        this._data = new Uint8Array(this.analyser.frequencyBinCount)
+        this._data = new Float32Array(this.analyser.frequencyBinCount)
       }
-      this.analyser.getByteTimeDomainData(this._data!)
+      this.analyser.getFloatTimeDomainData(this._data!)
     }
   }
 
@@ -203,7 +203,7 @@ class VAnalyser extends IMetro {
     if (this._data) {
       let w = 1920 / this._data.length
       for (let i = 0; i < this._data.length; i++) {
-        let h = this._data[i] / 256 * 256 
+        let h = this._data[i] * 256 
         this.palette.rect(this.play, this.color, i * w, 540, w, -h)
       }
     }
@@ -384,8 +384,17 @@ class Sawtooth extends HasAudioAnalyser {
 type PulseControls = {
   cutoff: number,
   volume: number,
-  pulse_width: number
+  pulse_width: number,
+  attack: number,
+  release: number,
+  note: number,
+  semi: number,
+  filter_envelope: number,
+  filter_envelope_attack: number,
+  filter_envelope_release: number,
 }
+
+/* https://github.com/pendragon-andyh/WebAudio-PulseOscillator */
 class PulseOscillator extends HasAudioAnalyser {
 
   data!: PulseControls
@@ -410,27 +419,53 @@ class PulseOscillator extends HasAudioAnalyser {
     squareCurve.fill(-1, 0, 128)
     squareCurve.fill(1, 128, 256)
 
-    let sawtooth = new OscillatorNode(context, { type: 'sawtooth', frequency: 440 })
+    let frequency = 440 * Math.pow(2, 1/12 * this.data.note),
+      frequency2 = 440 * Math.pow(2, 1/12 * (this.data.note + this.data.semi))
+
+    let sawtooth = new OscillatorNode(context, { type: 'sawtooth', frequency })
     let squareShaper = new WaveShaperNode(context, { curve: squareCurve })
     let constantShaper = new WaveShaperNode(context, { curve: constantCurve(this.data.pulse_width) })
 
     sawtooth.connect(constantShaper)
     constantShaper.connect(squareShaper)
     sawtooth.connect(squareShaper)
-    //squareShaper.connect(this.gain!)
+
+    let sawtooth2 = new OscillatorNode(context, { type: 'sawtooth', frequency: frequency2 })
+    let squareShaper2 = new WaveShaperNode(context, { curve: squareCurve })
+    let constantShaper2 = new WaveShaperNode(context, { curve: constantCurve(this.data.pulse_width) })
+
+    sawtooth2.connect(constantShaper2)
+    constantShaper2.connect(squareShaper2)
+    sawtooth2.connect(squareShaper2)
 
 
     let lowpass = new BiquadFilterNode(context, { type: 'lowpass' })
     lowpass.frequency.setValueAtTime(this.data.cutoff, now)
-
     squareShaper.connect(lowpass)
-    lowpass.connect(this.gain!)
+    squareShaper2.connect(lowpass)
+    //sawtooth.connect(lowpass)
+    //sawtooth2.connect(lowpass)
 
+    lowpass.frequency.linearRampToValueAtTime(this.data.cutoff + this.data.filter_envelope, 
+                                              now + this.data.filter_envelope_attack)
+    lowpass.frequency.linearRampToValueAtTime(this.data.cutoff,
+                                              now + this.data.filter_envelope_attack + this.data.filter_envelope_release)
+
+    let { attack, release } = this.data
+    let envelope = new GainNode(context)
+    lowpass.connect(envelope)
+    envelope.connect(this.gain!)
+
+    let sustain = 0.4 
+    envelope.gain.setValueAtTime(0.01, now)
+    envelope.gain.linearRampToValueAtTime(1, now + attack)
+    envelope.gain.linearRampToValueAtTime(0.000, now + attack + sustain + release)
 
     this.gain!.gain.setValueAtTime(this.data.volume, now)
     sawtooth.start(now)
-    this.gain!.gain.exponentialRampToValueAtTime(0.001, now + 2)
-    sawtooth.stop(now + 2)
+    sawtooth2.start(now)
+    sawtooth.stop(now + now + attack + sustain + release)
+    sawtooth2.stop(now + now + attack + sustain + release)
   }
 
 }
