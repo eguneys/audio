@@ -29,7 +29,15 @@ body {
     <div id='app'></div>
     <script>
       document.addEventListener('DOMContentLoaded', () => {
-        let config = { pulse: { semi: 0, note: 0, volume: 0.1, pulse_width: 0, cutoff: 2000, attack: 0, release: 0, filter_envelope: 0, filter_envelope_attack: 0, filter_envelope_release: 0 } }
+        let config = { pulse: { semi: 0, note: 0, volume: 0.1, pulse_width: 0, cutoff: 2000, attack: 0, release: 0, decay: 0, sustain: 0, filter_envelope: 0, filter_envelope_attack: 0, filter_envelope_release: 0,
+
+
+
+                echo: 0,
+                feedback: 0,
+                delay: 0
+
+              } }
         let api = Space(document.getElementById('app'), config)
 
         let gui = new dat.GUI()
@@ -42,8 +50,14 @@ body {
         gui.add(config.pulse, 'pulse_width', 0, 0.6, 0.1)
         gui.add(config.pulse, 'volume', 0, 1, 0.1)
         gui.add(config.pulse, 'cutoff', 0, 2000, 200)
-        gui.add(config.pulse, 'attack', 0, 1, 0.1)
-        gui.add(config.pulse, 'release', 0, 1, 0.1)
+        gui.add(config.pulse, 'attack', 0, 2, 0.1)
+        gui.add(config.pulse, 'release', 0, 2, 0.1)
+        gui.add(config.pulse, 'decay', 0, 2, 0.1)
+        gui.add(config.pulse, 'sustain', 0, 2, 0.1)
+
+        gui.add(config.pulse, 'echo', 0, 1, 0.3)
+        gui.add(config.pulse, 'feedback', 0, 1, 0.2)
+        gui.add(config.pulse, 'delay', 0, 1, 0.2)
 
       })
     </script>

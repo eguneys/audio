@@ -387,11 +387,17 @@ type PulseControls = {
   pulse_width: number,
   attack: number,
   release: number,
+  sustain: number,
+  decay: number,
   note: number,
   semi: number,
   filter_envelope: number,
   filter_envelope_attack: number,
   filter_envelope_release: number,
+
+  echo: number,
+  feedback: number,
+  delay: number
 }
 
 /* https://github.com/pendragon-andyh/WebAudio-PulseOscillator */
@@ -439,33 +445,58 @@ class PulseOscillator extends HasAudioAnalyser {
     sawtooth2.connect(squareShaper2)
 
 
+
+    let input = new GainNode(context)
+    sawtooth.connect(input)
+    sawtooth2.connect(input)
+
+    /* https://github.com/Theodeus/tuna/blob/master/tuna.js */
+    let activate = new GainNode(context),
+      dry = new GainNode(context),
+      wet = new GainNode(context),
+      delay = new DelayNode(context, { maxDelayTime: 2 }),
+      feedback = new GainNode(context),
+      output = new GainNode(context)
+
+    input.connect(activate)
+    activate.connect(delay)
+    activate.connect(dry)
+    delay.connect(feedback)
+    feedback.connect(delay)
+    feedback.connect(wet)
+    wet.connect(output)
+    dry.connect(output)
+
+    feedback.gain.setValueAtTime(this.data.feedback, now)
+    wet.gain.setValueAtTime(this.data.echo, now)
+    dry.gain.setValueAtTime(1-this.data.echo, now)
+    delay.delayTime.setValueAtTime(this.data.delay, now)
+
     let lowpass = new BiquadFilterNode(context, { type: 'lowpass' })
     lowpass.frequency.setValueAtTime(this.data.cutoff, now)
-    squareShaper.connect(lowpass)
-    squareShaper2.connect(lowpass)
-    //sawtooth.connect(lowpass)
-    //sawtooth2.connect(lowpass)
+    output.connect(lowpass)
 
     lowpass.frequency.linearRampToValueAtTime(this.data.cutoff + this.data.filter_envelope, 
                                               now + this.data.filter_envelope_attack)
     lowpass.frequency.linearRampToValueAtTime(this.data.cutoff,
                                               now + this.data.filter_envelope_attack + this.data.filter_envelope_release)
 
-    let { attack, release } = this.data
+    let { attack, release, decay, sustain } = this.data
     let envelope = new GainNode(context)
     lowpass.connect(envelope)
     envelope.connect(this.gain!)
 
-    let sustain = 0.4 
     envelope.gain.setValueAtTime(0.01, now)
     envelope.gain.linearRampToValueAtTime(1, now + attack)
-    envelope.gain.linearRampToValueAtTime(0.000, now + attack + sustain + release)
+    envelope.gain.linearRampToValueAtTime(0.5, now + attack + decay)
+    envelope.gain.setValueAtTime(0.5, now + attack + decay + sustain)
+    envelope.gain.linearRampToValueAtTime(0.000, now + attack + decay + sustain + release)
 
     this.gain!.gain.setValueAtTime(this.data.volume, now)
     sawtooth.start(now)
     sawtooth2.start(now)
-    sawtooth.stop(now + now + attack + sustain + release)
-    sawtooth2.stop(now + now + attack + sustain + release)
+    sawtooth.stop(now + now + attack + decay + sustain + release)
+    sawtooth2.stop(now + now + attack + decay + sustain + release)
   }
 
 }
