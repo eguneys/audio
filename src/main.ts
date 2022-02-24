@@ -103,65 +103,37 @@ class Anim {
 
 class AllMetro extends IMetro {
 
-  kick!: Kick
-  snare!: Snare
-  sawtooth!: Sawtooth
 
-  v_snare!: VAnalyser
-  v_kick!: VAnalyser
-  v_sawtooth!: VAnalyser
-  v_pulse!: VAnalyser
+  vplayer!: VAnalyser
+
+
 
   _init() {
 
     let context = new AudioContext()
 
-    this.kick = new Kick(context)
-    this.snare = new Snare(context)
+    this.vplayer = new VAnalyser(this.ctx)
+      ._set_data({ has_analyser: new MidiPlayer(context), color: 3 });
 
-    this.v_snare = new VAnalyser(this.ctx)._set_data({ has_analyser: this.snare, color: 3 })
-    this.v_kick = new VAnalyser(this.ctx)._set_data({ has_analyser: this.kick, color: 6 })
+    let now = context.currentTime;
 
-    this.sawtooth = new Sawtooth(context)
-    this.v_sawtooth = new VAnalyser(this.ctx)._set_data({ has_analyser: this.sawtooth, color: 8 })
-
-
-    this.v_pulse = new VAnalyser(this.ctx)
-    ._set_data({ has_analyser: new PulseOscillator(context)._set_data(this.c.pulse), color: 9 })
+    let seq = 0
+    composition_to_midi('180 C31 E3h G31').map(_ => {
+      (this.vplayer.has_analyser as MidiPlayer)._set_data(_).a(now + seq)
+      seq += _.dur
+    })
 
   }
 
   _update(dt: number, dt0: number) {
-  
-    if (this.on_interval(ticks.seconds)) {
-      //this.snare.a()
-    }
-
-    if (this.on_interval(ticks.half)) {
-      this.kick.a()
-    }
-
-    if (this.on_interval(ticks.seconds * 2)) {
-      //this.sawtooth.a()
-      this.v_pulse.has_analyser.a()
-    }
- 
-
-    this.v_snare.update(dt, dt0)
-    this.v_kick.update(dt, dt0)
-    this.v_sawtooth.update(dt, dt0)
-
-    this.v_pulse.update(dt, dt0)
+    this.vplayer.update(dt, dt0)
   }
 
   _draw() {
 
     this.palette.rect(this.play, 1, 0, 0, 1920, 1080)
-    this.v_kick.draw()
-    this.v_snare.draw()
-    this.v_sawtooth.draw()
-    this.v_pulse.draw()
-  }
+    this.vplayer.draw()
+  } 
 }
 
 type Color = number
@@ -269,8 +241,6 @@ export default function app(element: HTMLElement, config: Config) {
   })
 }
 
-
-
 abstract class HasAudioAnalyser {
   analyser?: AnalyserNode
 
@@ -292,6 +262,137 @@ abstract class HasAudioAnalyser {
   }
 
   abstract _a(time: number): void;
+}
+
+type MidiNote = {
+  dur: number,
+  freq: number
+}
+
+class MidiPlayer extends HasAudioAnalyser {
+
+  data!: MidiNote
+
+  _set_data(data: MidiNote) {
+    this.data = data
+    return this
+  }
+
+  _a(now: number) {
+
+
+    let { context } = this
+    let out_gain = this.gain!
+
+    let { dur, freq } =  this.data
+
+    let osc1 = new OscillatorNode(context, { type: 'sawtooth' })
+
+    let filter = new BiquadFilterNode(context, { type: 'lowpass' })
+    osc1.connect(filter)
+
+    let envelope = new GainNode(context)
+    filter.connect(envelope)
+    envelope.connect(out_gain)
+
+
+    let cutoff = 12000
+
+    osc1.frequency.setValueAtTime(freq, now)
+
+    adsr(filter.frequency, 
+      now,
+      dur,
+      { a: 0.0, d: 0.3, s: 0 },
+      cutoff,
+      cutoff * 1.5,
+      cutoff)
+
+    adsr(envelope.gain,
+      now,
+      dur,
+      { a: 0.02, d: 0.3, s: 0.48, r: 0.2 },
+      0,
+      1,
+      1)
+
+
+    osc1.start(now)
+    osc1.stop(now + dur * 2)
+  }
+
+}
+
+type Adsr = {
+  a: number,
+  d: number,
+  s: number,
+  r?: number
+}
+
+function adsr(param: AudioParam, now: number, dur: number, {a,d,s,r}: Adsr, start: number, max: number, min: number) {
+
+  a *= dur
+  d *= dur
+  s *= dur
+
+  if (r) {
+    r *= dur
+  }
+
+  param.setValueAtTime(start, now)
+  param.linearRampToValueAtTime(max, now + a)
+  param.linearRampToValueAtTime(min, now + a + s + d)
+
+  r && param.linearRampToValueAtTime(0, now + a + s + d + r)
+}
+
+
+type Composition = string
+
+// '120 C3w C#2q'
+function composition_to_midi(comp: Composition) {
+  let [tempo, ...notes] = comp.split(' ')
+
+
+  return notes.map(_note => {
+    let value = _note.slice(-1)
+    let note = _note.slice(0, -1)
+    return {
+      dur: note_value(parseInt(tempo), value),
+      freq: note_freq(note)
+    }
+  })
+}
+
+type Tempo = number
+type Beat = number
+
+let note_values = ['2', '1', 'h', 'q', 'e', 'x']
+let note__values = [2, 1, 1/2, 1/4, 1/8, 1/16]
+
+type NoteValue = typeof note_values[number]
+
+let notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+type Octave = 1 | 2 | 3 | 4 | 5 | 6
+type Note = string
+
+/* https://github.com/jergason/notes-to-frequencies/blob/master/index.js */
+function note_freq(note: Note) {
+
+  let octave = parseInt(note.slice(-1))
+  let pitch = notes.indexOf(note.slice(0, -1))
+
+  let n = pitch + octave * 12
+  
+  return 440 * Math.pow(2, (n - 57) / 12)
+}
+
+
+function note_value(tempo: Tempo, value: NoteValue) {
+  let beat = 60 / tempo
+  return note__values[note_values.indexOf(value)] * beat
 }
 
 class Snare extends HasAudioAnalyser {
@@ -335,51 +436,6 @@ class Snare extends HasAudioAnalyser {
   }
 }
 
-class Kick extends HasAudioAnalyser {
-
-  _a(time: number) {
-    let { context, gain } = this
-
-    let oscillator = context.createOscillator()
-    oscillator.connect(gain!)
-
-    oscillator.frequency.setValueAtTime(150, time)
-
-    gain!.gain.exponentialRampToValueAtTime(0.001, time + 0.5)
-    oscillator.start(time)
-    oscillator.stop(time + 0.5)
-  }
-
-}
-
-class Sawtooth extends HasAudioAnalyser {
-
-  _a(now: number) {
-    let { context } = this
-    let os = [1,2,3,4,5,6,7,8,9,10,11,12].map(_ => context.createOscillator())
-
-    os.forEach((_, i) => _.frequency.setValueAtTime(440 * (i + 1), now))
-
-    os.forEach(_ => _.connect(this.gain!))
-
-    let attack = 0.5,
-      hold = 1,
-      decay = 0.5,
-      release = 1
-
-    this.gain!.gain.setValueAtTime(0, now)
-    this.gain!.gain.linearRampToValueAtTime(1, now + attack)
-
-    this.gain!.gain.linearRampToValueAtTime(0.5, now + attack + hold)
-    this.gain!.gain.linearRampToValueAtTime(0.2, now + attack + hold + decay)
-
-    os.forEach(_ => _.start(now))
-
-    this.gain!.gain.linearRampToValueAtTime(0.01, now + attack + hold + decay + release)
-
-    os.forEach(_ => _.stop(now + attack + hold + decay + release))
-  }
-}
 
 type PulseControls = {
   cutoff: number,
@@ -399,6 +455,8 @@ type PulseControls = {
   feedback: number,
   delay: number
 }
+
+
 
 /* https://github.com/pendragon-andyh/WebAudio-PulseOscillator */
 class PulseOscillator extends HasAudioAnalyser {
